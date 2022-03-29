@@ -45,8 +45,9 @@
 #include <linux/poll.h>
 #include <linux/ktime.h>
 #include <linux/regulator/consumer.h>
+
 #include "p73.h"
-#include "../NXPNFC_I2CDriver/common_ese.h"
+#include "common_ese.h"
 
 #define DRAGON_P61 1
 

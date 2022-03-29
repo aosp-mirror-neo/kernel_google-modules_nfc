@@ -1,0 +1,6 @@
+obj-m		+= pn553_i2c.o
+pn553_i2c-objs	:= common.o common_ese.o i2c_drv.o
+
+obj-m		+= p73.o
+
+#ccflags-y	:= -DDEBUG
