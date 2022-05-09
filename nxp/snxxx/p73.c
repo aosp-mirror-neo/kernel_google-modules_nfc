@@ -1038,7 +1038,7 @@ static struct spi_driver p61_driver = {
 
 static int __init p61_dev_init(void)
 {
-	debug_level = P61_FULL_DEBUG;
+	debug_level = P61_DEBUG_OFF;
 
 	P61_DBG_MSG("Entry : %s\n", __FUNCTION__);
 
