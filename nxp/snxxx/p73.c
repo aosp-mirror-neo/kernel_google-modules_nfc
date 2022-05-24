@@ -804,15 +804,22 @@ static int p61_parse_dt(struct device *dev, struct p61_spi_platform_data *data)
 	struct device_node *np = dev->of_node;
 	int errorno = 0;
 
+#ifdef P61_IRQ_ENABLE
 	data->irq_gpio = of_get_named_gpio(np, "nxp,p61-irq", 0);
 	if ((!gpio_is_valid(data->irq_gpio)))
 		return -EINVAL;
+#endif
 
 	data->rst_gpio = of_get_named_gpio(np, "nxp,p61-rst", 0);
 	if ((!gpio_is_valid(data->rst_gpio)))
 		return -EINVAL;
 
-	pr_info("%s: %d, %d %d\n", __func__, data->irq_gpio, data->rst_gpio, errorno);
+#ifdef P61_IRQ_ENABLE
+	pr_info("%s: irq_gpio = %d, rst_gpio = %d, errorno = %d\n",
+			__func__, data->irq_gpio, data->rst_gpio, errorno);
+#else
+	pr_info("%s: rst_gpio = %d, errorno = %d\n", __func__, data->rst_gpio, errorno);
+#endif
 
 	return errorno;
 }
