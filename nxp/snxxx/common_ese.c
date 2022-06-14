@@ -241,7 +241,6 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 		}
 	}
 err:
-	mutex_unlock(&nfc_dev->dev_ref_mutex);
 	return ret;
 }
 
