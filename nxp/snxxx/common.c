@@ -28,6 +28,7 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 {
 	struct device_node *np = dev->of_node;
 	struct platform_gpio *nfc_gpio = &nfc_configs->gpio;
+	struct platform_regulator *nfc_regulator = &nfc_configs->vddio;
 
 	if (!np) {
 		pr_err("%s: nfc of_node NULL\n", __func__);
@@ -61,6 +62,45 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 
 	pr_info("%s: %d, %d, %d\n", __func__, nfc_gpio->irq, nfc_gpio->ven,
 		nfc_gpio->dwl_req);
+
+
+	int ret = of_property_read_u32(np, DTS_VDDIO_ACTIVE_LOAD_STR,
+					&nfc_regulator->vddio_active_load);
+	if (ret) {
+		pr_err("%s: Unable to parse %s\n", __func__, DTS_VDDIO_ACTIVE_LOAD_STR);
+		return ret;
+	}
+
+	ret = of_property_read_u32(np, DTS_VDDIO_SLEEP_LOAD_STR,
+					&nfc_regulator->vddio_sleep_load);
+	if (ret) {
+		pr_err("%s: Unable to parse %s\n", __func__, DTS_VDDIO_SLEEP_LOAD_STR);
+		return ret;
+	}
+
+	char prop_name[32];
+	snprintf(prop_name, sizeof(prop_name), "%s-supply", DTS_VDDIO_SUPPLY_STR);
+	if (of_parse_phandle(np, prop_name, 0) == NULL) {
+		pr_info("%s: %s is not provided in device tree\n", __func__,
+			DTS_VDDIO_SUPPLY_STR);
+		return -EINVAL;
+	}
+	nfc_regulator->vddio_supply = devm_regulator_get(dev, DTS_VDDIO_SUPPLY_STR);
+	if (IS_ERR(nfc_regulator->vddio_supply)) {
+		ret = PTR_ERR(nfc_regulator->vddio_supply);
+		pr_err("%s: Error to get vdd-supply error code = %d\n",
+			__func__, ret);
+		return ret;
+	}
+	pr_info("%s: successfully got regulator\n", __func__);
+	ret = vddio_set_active_load(nfc_regulator);
+	if (ret != 0) {
+		pr_err("%s: Failed to set vdd-supply load error code = %d\n",
+			__func__, ret);
+		return ret;
+	}
+	pr_info("%s: successfully set regulator load\n", __func__);
+
 	return 0;
 }
 
@@ -163,6 +203,44 @@ void gpio_free_all(struct nfc_dev *nfc_dev)
 
 	if (gpio_is_valid(nfc_gpio->ven))
 		gpio_free(nfc_gpio->ven);
+}
+
+int vddio_set_active_load(struct platform_regulator *nfc_regulator)
+{
+	struct regulator *vddio_supply = nfc_regulator->vddio_supply;
+	uint32_t active_load = nfc_regulator->vddio_active_load;
+
+	int ret = regulator_set_load(vddio_supply, active_load);
+	if (ret) {
+		pr_err("%s: Failed to set active load to vddio regulator\n", __func__);
+		return ret;
+	}
+	return 0;
+}
+
+int vddio_set_sleep_load(struct platform_regulator *nfc_regulator)
+{
+	struct regulator *vddio_supply = nfc_regulator->vddio_supply;
+	uint32_t sleep_load = nfc_regulator->vddio_sleep_load;
+
+	int ret = regulator_set_load(vddio_supply, sleep_load);
+	if (ret) {
+		pr_err("%s: Failed to set sleep load to vddio regulator\n", __func__);
+		return ret;
+	}
+	return 0;
+}
+
+int vddio_enable_regulator(struct platform_regulator *nfc_regulator)
+{
+	struct regulator *vddio_supply = nfc_regulator->vddio_supply;
+	return regulator_enable(vddio_supply);
+}
+
+void vddio_disable_regulator(struct platform_regulator *nfc_regulator)
+{
+	struct regulator *vddio_supply = nfc_regulator->vddio_supply;
+	regulator_disable(vddio_supply);
 }
 
 void nfc_misc_unregister(struct nfc_dev *nfc_dev, int count)

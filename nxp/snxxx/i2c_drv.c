@@ -325,6 +325,7 @@ int nfc_i2c_dev_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	struct i2c_dev *i2c_dev = NULL;
 	struct platform_configs *nfc_configs = NULL;
 	struct platform_gpio *nfc_gpio = NULL;
+	struct platform_regulator *nfc_regulator = NULL;
 	pr_debug("%s: enter\n", __func__);
 	nfc_dev = kzalloc(sizeof(struct nfc_dev), GFP_KERNEL);
 	if (nfc_dev == NULL) {
@@ -333,6 +334,7 @@ int nfc_i2c_dev_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 	nfc_configs = &nfc_dev->configs;
 	nfc_gpio = &nfc_configs->gpio;
+	nfc_regulator = &nfc_configs->vddio;
 	/* retrieve details of gpios from dt */
 	ret = nfc_parse_dt(&client->dev,nfc_configs, PLATFORM_IF_I2C);
 	if (ret) {
@@ -380,6 +382,14 @@ int nfc_i2c_dev_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		pr_err("%s: unable to request nfc firm downl gpio [%d]\n",
 		       __func__, nfc_gpio->dwl_req);
 	}
+
+	ret = vddio_enable_regulator(nfc_regulator);
+	if (ret) {
+		pr_err("%s: Failed to enable vdd-supply regulator\n", __func__);
+		goto err_free_regulator;
+	}
+	pr_info("%s: successfully enabled regulator\n", __func__);
+
 	/* init mutex and queues */
 	init_waitqueue_head(&nfc_dev->read_wq);
 	mutex_init(&nfc_dev->read_mutex);
@@ -418,6 +428,8 @@ err_mutex_destroy:
 	mutex_destroy(&nfc_dev->dev_ref_mutex);
 	mutex_destroy(&nfc_dev->read_mutex);
 	mutex_destroy(&nfc_dev->write_mutex);
+err_free_regulator:
+	vddio_disable_regulator(nfc_regulator);
 err_free_gpio:
 	gpio_free_all(nfc_dev);
 err_free_write_kbuf:
@@ -435,6 +447,8 @@ int nfc_i2c_dev_remove(struct i2c_client *client)
 {
 	int ret = 0;
 	struct nfc_dev *nfc_dev = NULL;
+	struct platform_configs *nfc_configs = NULL;
+	struct platform_regulator *nfc_regulator = NULL;
 
 	pr_info("%s: remove device\n", __func__);
 	nfc_dev = i2c_get_clientdata(client);
@@ -447,11 +461,14 @@ int nfc_i2c_dev_remove(struct i2c_client *client)
 		pr_err("%s: device already in use\n", __func__);
 		return -EBUSY;
 	}
+	nfc_configs = &nfc_dev->configs;
+	nfc_regulator = &nfc_configs->vddio;
 	device_init_wakeup(&client->dev, false);
 	free_irq(client->irq, nfc_dev);
 	nfc_misc_unregister(nfc_dev, DEV_COUNT);
 	mutex_destroy(&nfc_dev->read_mutex);
 	mutex_destroy(&nfc_dev->write_mutex);
+	vddio_disable_regulator(nfc_regulator);
 	gpio_free_all(nfc_dev);
 	kfree(nfc_dev->read_kbuf);
 	kfree(nfc_dev->write_kbuf);

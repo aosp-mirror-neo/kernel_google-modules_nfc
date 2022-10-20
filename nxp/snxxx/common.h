@@ -21,6 +21,7 @@
 #define _COMMON_H_
 
 #include <linux/cdev.h>
+#include <linux/regulator/consumer.h>
 
 #include "i2c_drv.h"
 
@@ -79,6 +80,10 @@
 #define DTS_IRQ_GPIO_STR		"nxp,sn-irq"
 #define DTS_VEN_GPIO_STR		"nxp,sn-ven-rstn"
 #define DTS_FWDN_GPIO_STR		"nxp,sn-dwl-req"
+
+#define DTS_VDDIO_SUPPLY_STR		"nxp,sn-vddio"
+#define DTS_VDDIO_ACTIVE_LOAD_STR	"nxp,sn-vddio-active-load"
+#define DTS_VDDIO_SLEEP_LOAD_STR	"nxp,sn-vddio-sleep-load"
 
 enum nfcc_ioctl_request {
 	/* NFC disable request with VEN LOW */
@@ -140,9 +145,17 @@ struct platform_gpio {
 	unsigned int dwl_req;
 };
 
+/* NFC regulator variables */
+struct platform_regulator {
+	uint32_t vddio_active_load;
+	uint32_t vddio_sleep_load;
+	struct regulator *vddio_supply;
+};
+
 /* NFC Struct to get all the required configs from DTS */
 struct platform_configs {
 	struct platform_gpio gpio;
+	struct platform_regulator vddio;
 };
 
 /* cold reset Features specific Parameters */
@@ -207,4 +220,8 @@ int configure_gpio(unsigned int gpio, int flag);
 void gpio_set_ven(struct nfc_dev *nfc_dev, int value);
 void gpio_free_all(struct nfc_dev *nfc_dev);
 int validate_nfc_state_nci(struct nfc_dev *nfc_dev);
+int vddio_set_active_load(struct platform_regulator *nfc_regulator);
+int vddio_set_sleep_load(struct platform_regulator *nfc_regulator);
+int vddio_enable_regulator(struct platform_regulator *nfc_regulator);
+void vddio_disable_regulator(struct platform_regulator *nfc_regulator);
 #endif /* _COMMON_H_ */
