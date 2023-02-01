@@ -29,6 +29,8 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 	struct device_node *np = dev->of_node;
 	struct platform_gpio *nfc_gpio = &nfc_configs->gpio;
 	struct platform_regulator *nfc_regulator = &nfc_configs->vddio;
+	char prop_name[32];
+	int ret;
 
 	if (!np) {
 		pr_err("%s: nfc of_node NULL\n", __func__);
@@ -64,8 +66,8 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 		nfc_gpio->dwl_req);
 
 
-	int ret = of_property_read_u32(np, DTS_VDDIO_ACTIVE_LOAD_STR,
-					&nfc_regulator->vddio_active_load);
+	ret = of_property_read_u32(np, DTS_VDDIO_ACTIVE_LOAD_STR,
+				   &nfc_regulator->vddio_active_load);
 	if (ret) {
 		pr_err("%s: Unable to parse %s\n", __func__, DTS_VDDIO_ACTIVE_LOAD_STR);
 		return ret;
@@ -78,7 +80,6 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 		return ret;
 	}
 
-	char prop_name[32];
 	snprintf(prop_name, sizeof(prop_name), "%s-supply", DTS_VDDIO_SUPPLY_STR);
 	if (of_parse_phandle(np, prop_name, 0) == NULL) {
 		pr_info("%s: %s is not provided in device tree\n", __func__,
