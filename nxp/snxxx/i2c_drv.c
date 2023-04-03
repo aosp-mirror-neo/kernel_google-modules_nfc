@@ -420,7 +420,8 @@ int nfc_i2c_dev_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(client, nfc_dev);
 	i2c_dev->irq_wake_up = false;
 
-	pr_info("%s: probing nfc i2c successfully\n", __func__);
+	pr_info("%s: probing nfc i2c (version: %s) successfully\n",
+			__func__, NFC_I2C_DRV_VER);
 	return 0;
 err_nfc_misc_unregister:
 	nfc_misc_unregister(nfc_dev, DEV_COUNT);

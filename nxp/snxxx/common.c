@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (C) 2015, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019-2021 NXP
+ * Copyright (C) 2019-2022 NXP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/delay.h>
+#include <linux/uaccess.h>
 
 #include "common_ese.h"
 
@@ -47,14 +48,14 @@ int nfc_parse_dt(struct device *dev, struct platform_configs *nfc_configs,
 		if ((!gpio_is_valid(nfc_gpio->irq))) {
 			pr_err("%s: irq gpio invalid %d\n", __func__,
 			       nfc_gpio->irq);
-			return -EINVAL;
+			return nfc_gpio->irq;
 		}
 		pr_info("%s: irq %d\n", __func__, nfc_gpio->irq);
 	}
 	nfc_gpio->ven = of_get_named_gpio(np, DTS_VEN_GPIO_STR, 0);
 	if ((!gpio_is_valid(nfc_gpio->ven))) {
 		pr_err("%s: ven gpio invalid %d\n", __func__, nfc_gpio->ven);
-		return -EINVAL;
+		return nfc_gpio->ven;
 	}
 	/* some products like sn220 does not required fw dwl pin */
 	nfc_gpio->dwl_req = of_get_named_gpio(np, DTS_FWDN_GPIO_STR, 0);
@@ -294,6 +295,45 @@ int nfc_misc_register(struct nfc_dev *nfc_dev,
 	}
 	return 0;
 }
+/**
+ * nfc_gpio_info() - gets the status of nfc gpio pins and encodes into a byte.
+ * @nfc_dev:    nfc device data structure
+ * @arg:        userspace buffer
+ *
+ * Encoding can be done in following manner
+ * 1) map the gpio value into INVALID(-2), SET(1), RESET(0).
+ * 2) mask the first 2 bits of gpio.
+ * 3) left shift the 2 bits as multiple of 2.
+ * 4) multiply factor can be defined as position of gpio pin in struct platform_gpio
+ *
+ * Return: -EFAULT, if unable to copy the data from kernel space to userspace, 0
+ * if Success(or no issue)
+ */
+
+static int nfc_gpio_info(struct nfc_dev *nfc_dev, unsigned long arg)
+{
+	unsigned int gpios_status = 0;
+	int value = 0;
+	int gpio_no = 0;
+	int i;
+	int ret = 0;
+	struct platform_gpio *nfc_gpio = &nfc_dev->configs.gpio;
+
+	for (i = 0; i < sizeof(struct platform_gpio) / sizeof(unsigned int);
+	     i++) {
+		gpio_no = *((unsigned int *)nfc_gpio + i);
+		value = get_valid_gpio(gpio_no);
+		if (value < 0)
+			value = -2;
+		gpios_status |= (value & GPIO_STATUS_MASK_BITS)<<(GPIO_POS_SHIFT_VAL*i);
+	}
+	ret = copy_to_user((uint32_t *) arg, &gpios_status, sizeof(value));
+	if (ret < 0) {
+		pr_err("%s : Unable to copy data from kernel space to user space");
+		return -EFAULT;
+	}
+	return 0;
+}
 
 /**
  * nfc_ioctl_power_states() - power control
@@ -321,12 +361,14 @@ static int nfc_ioctl_power_states(struct nfc_dev *nfc_dev, unsigned long arg)
 		set_valid_gpio(nfc_gpio->dwl_req, 0);
 		gpio_set_ven(nfc_dev, 0);
 		nfc_dev->nfc_ven_enabled = false;
+		nfc_dev->nfc_state = NFC_STATE_NCI;
 	} else if (arg == NFC_POWER_ON) {
 		nfc_dev->nfc_enable_intr(nfc_dev);
 		set_valid_gpio(nfc_gpio->dwl_req, 0);
 
 		gpio_set_ven(nfc_dev, 1);
 		nfc_dev->nfc_ven_enabled = true;
+		nfc_dev->nfc_state = NFC_STATE_NCI;
 	} else if (arg == NFC_FW_DWL_VEN_TOGGLE) {
 		/*
 		 * We are switching to download Mode, toggle the enable pin
@@ -416,11 +458,25 @@ long nfc_dev_ioctl(struct file *pfile, unsigned int cmd, unsigned long arg)
 	case NFC_SET_PWR:
 		ret = nfc_ioctl_power_states(nfc_dev, arg);
 		break;
+	case NFC_SET_RESET_READ_PENDING:
+		if (arg == NFC_SET_READ_PENDING) {
+			nfc_dev->cold_reset.is_nfc_read_pending = true;
+			/* Set default NFC state as NCI for Nfc read pending request */
+			nfc_dev->nfc_state = NFC_STATE_NCI;
+		} else if (arg == NFC_RESET_READ_PENDING) {
+			nfc_dev->cold_reset.is_nfc_read_pending = false;
+		} else {
+			ret = -EINVAL;
+		}
+		break;
 	case ESE_SET_PWR:
 		ret = nfc_ese_pwr(nfc_dev, arg);
 		break;
 	case ESE_GET_PWR:
 		ret = nfc_ese_pwr(nfc_dev, ESE_POWER_STATE);
+		break;
+	case NFC_GET_GPIO_STATUS:
+		ret = nfc_gpio_info(nfc_dev, arg);
 		break;
 	default:
 		pr_err("%s: bad cmd %lu\n", __func__, arg);
@@ -489,17 +545,18 @@ int nfc_dev_close(struct inode *inode, struct file *filp)
 	if (nfc_dev->dev_ref_count == 1) {
 		nfc_dev->nfc_disable_intr(nfc_dev);
 		set_valid_gpio(nfc_dev->configs.gpio.dwl_req, 0);
-	}
-	if (nfc_dev->dev_ref_count > 0)
-		nfc_dev->dev_ref_count = nfc_dev->dev_ref_count - 1;
-	else {
 		/*
 		 * Use "ESE_RST_PROT_DIS" as argument
 		 * if eSE calls flow is via NFC driver
 		 * i.e. direct calls from SPI HAL to NFC driver
 		 */
+		mutex_unlock(&nfc_dev->dev_ref_mutex);
 		nfc_ese_pwr(nfc_dev, ESE_RST_PROT_DIS_NFC);
+		mutex_lock(&nfc_dev->dev_ref_mutex);
 	}
+	if (nfc_dev->dev_ref_count > 0)
+		nfc_dev->dev_ref_count = nfc_dev->dev_ref_count - 1;
+
 	filp->private_data = NULL;
 
 	mutex_unlock(&nfc_dev->dev_ref_mutex);

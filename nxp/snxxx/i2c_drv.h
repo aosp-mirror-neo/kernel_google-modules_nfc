@@ -22,6 +22,8 @@
 
 #include <linux/i2c.h>
 
+#define NFC_I2C_DRV_VER			"23.04.07"
+
 /* kept same as dts */
 #define NFC_I2C_DRV_STR			"nxp,sn-nci"
 #define NFC_I2C_DEV_ID			"sn220"

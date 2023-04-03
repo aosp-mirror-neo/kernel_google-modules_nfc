@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2020-2021 NXP
+ * Copyright (C) 2020-2022 NXP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,7 +116,7 @@ static int validate_cold_reset_protection_request(struct cold_reset *cold_reset,
 		} else if (IS_CLD_RST_REQ(arg) && IS_SRC_VALID(arg)) {
 			pr_debug("%s: cold reset\n", __func__);
 		} else if (IS_RST_PROT_DIS_REQ(arg) && IS_SRC_VALID_PROT(arg)) {
-			pr_debug("%s: reset protection already disable\n",
+			pr_err("%s: reset protection already disable\n",
 				 __func__);
 			ret = -EINVAL;
 		} else {
@@ -133,8 +133,9 @@ static int validate_cold_reset_protection_request(struct cold_reset *cold_reset,
 			pr_debug("%s: cold reset from same source\n", __func__);
 		} else if (IS_RST_PROT_EN_REQ(arg) &&
 			   IS_SRC(arg, cold_reset->rst_prot_src)) {
-			pr_debug("%s: enable reset protection from same src\n",
+			pr_err("%s: enable reset protection from same src\n",
 				 __func__);
+			ret = -EINVAL;
 		} else {
 			pr_err("%s: operation not permitted\n", __func__);
 			ret = -EPERM;
@@ -148,6 +149,7 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 {
 	int ret = 0;
 	int timeout = 0;
+	int retry_cnt = 0;
 	char *rsp = nfc_dev->read_kbuf;
 	struct cold_reset *cold_reset = &nfc_dev->cold_reset;
 
@@ -203,26 +205,33 @@ static int perform_cold_reset_protection(struct nfc_dev *nfc_dev,
 	}
 
 	timeout = NCI_CMD_RSP_TIMEOUT_MS;
+	mutex_lock(&nfc_dev->dev_ref_mutex);
 	do {
-		/* call read api directly if reader thread is not blocked */
-		if (mutex_trylock(&nfc_dev->read_mutex)) {
-			pr_debug("%s: reader thread not pending\n", __func__);
-			ret = nfc_dev->nfc_read(nfc_dev, rsp, 3,
-						timeout);
-			mutex_unlock(&nfc_dev->read_mutex);
+		if (nfc_dev->cold_reset.is_nfc_read_pending) {
+			if (!wait_event_interruptible_timeout
+			    (cold_reset->read_wq,
+			     cold_reset->rsp_pending == false,
+			     msecs_to_jiffies(timeout))) {
+				pr_err("%s: cold reset/prot response timeout\n",
+				       __func__);
+				if (retry_cnt <= 1) {
+					retry_cnt = retry_cnt + 1;
+					ret = -EAGAIN;
+				} else {
+					pr_debug("%s: Maximum retry reached",
+						 __func__);
+					ret = -ETIMEDOUT;
+				}
+			}
+		} else {
+			ret = nfc_dev->nfc_read(nfc_dev, rsp, 3, timeout);
 			if (!ret)
 				break;
 			usleep_range(READ_RETRY_WAIT_TIME_US,
-					 READ_RETRY_WAIT_TIME_US + 500);
-		/* Read pending response form the HAL service */
-		} else if (!wait_event_interruptible_timeout(
-					cold_reset->read_wq,
-					cold_reset->rsp_pending == false,
-					msecs_to_jiffies(timeout))) {
-			pr_err("%s: cold reset/prot response timeout\n", __func__);
-			ret = -EAGAIN;
+				     READ_RETRY_WAIT_TIME_US + 500);
 		}
-	} while (ret == -ERESTARTSYS || ret == -EFAULT);
+	} while (ret == -ERESTARTSYS || ret == -EFAULT || ret == -EAGAIN);
+	mutex_unlock(&nfc_dev->dev_ref_mutex);
 	mutex_unlock(&nfc_dev->write_mutex);
 
 	timeout = ESE_CLD_RST_REBOOT_GUARD_TIME_MS;
