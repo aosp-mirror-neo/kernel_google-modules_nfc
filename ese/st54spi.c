@@ -12,6 +12,7 @@
  * <arach.mohammed.brahim@st.com>
  */
 
+#include <linux/cleanup.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
@@ -954,11 +955,13 @@ static inline void st54spi_probe_acpi(struct spi_device *spi)
 static int st54spi_parse_dt(struct device *dev, struct st54spi_data *pdata)
 {
 	int r = 0;
-	struct device_node *np = dev->of_node;
 	const char *power_mode;
 
 #ifndef GKI_MODULE
+	struct device_node *np __free(device_node);
 	np = of_find_compatible_node(NULL, NULL, "st,st54spi");
+#else
+	struct device_node *np = dev->of_node;
 #endif
 
 	if (!np) {

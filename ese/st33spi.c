@@ -12,6 +12,7 @@
  * <arach.mohammed.brahim@st.com>
  */
 
+#include <linux/cleanup.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
@@ -1000,14 +1001,16 @@ static inline void st33spi_probe_acpi(struct spi_device *spi)
 
 static int st33spi_parse_dt(struct device *dev, struct st33spi_data *pdata)
 {
-	struct device_node *np = dev->of_node;
 	struct device_node *data_np;
 	const char *power_mode;
 	int st33spi_state;
 	int esereset_state;
 
 #ifndef GKI_MODULE
+	struct device_node *np __free(device_node);
 	np = of_find_compatible_node(NULL, NULL, "st,st33spi");
+#else
+	struct device_node *np = dev->of_node;
 #endif
 
 	if (!np) {
