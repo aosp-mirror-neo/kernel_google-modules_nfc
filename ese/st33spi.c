@@ -1071,6 +1071,7 @@ static int st33spi_parse_dt(struct device *dev, struct st33spi_data *pdata)
 		pdata->spi_state = 0;
 	}
 	dev_info(dev, "Default st33spi state: %d\n", pdata->spi_state);
+	of_node_put(data_np);
 
 	pdata->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR(pdata->pinctrl)) {
